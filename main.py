@@ -1,114 +1,105 @@
+import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import requests
 import re
 from collections import Counter
+import json
 
 app = FastAPI()
 
-# Define the request model
-class YouTubeChannelRequest(BaseModel):
-    channel_url: str
+# Thay API_KEY bằng API Key thực tế của bạn
+API_KEY = "YOUR_YOUTUBE_API_KEY"
 
-# Function to extract Channel ID from YouTube URL
-def get_channel_id(channel_url):
-    api_key = "YOUR_YOUTUBE_API_KEY"  # Replace with your actual YouTube API Key
-    username = channel_url.split("/")[-1]
-    youtube_api_url = f"https://www.googleapis.com/youtube/v3/search?key={api_key}&q={username}&type=channel&part=id"
-    
-    response = requests.get(youtube_api_url)
-    if response.status_code == 200:
-        data = response.json()
-        if "items" in data and len(data["items"]) > 0:
-            return data["items"][0]["id"]["channelId"]
+# Định nghĩa các dạng URL kênh YouTube
+YOUTUBE_URL_PATTERNS = [
+    r"youtube\.com/channel/([a-zA-Z0-9_-]+)",  # Dạng /channel/ID
+    r"youtube\.com/c/([a-zA-Z0-9_-]+)",        # Dạng /c/TênKênh
+    r"youtube\.com/@([a-zA-Z0-9_-]+)",         # Dạng @TênKênh
+]
+
+# Hàm lấy Channel ID từ URL
+def get_channel_id(channel_url: str):
+    for pattern in YOUTUBE_URL_PATTERNS:
+        match = re.search(pattern, channel_url)
+        if match:
+            return match.group(1)
+
+    # Nếu là @username, chuyển thành Channel ID
+    if "youtube.com/@" in channel_url:
+        username = channel_url.split("@")[-1]
+        url = f"https://www.googleapis.com/youtube/v3/channels?part=id&forHandle={username}&key={API_KEY}"
+        response = requests.get(url).json()
+        if "items" in response and response["items"]:
+            return response["items"][0]["id"]
+
     return None
 
-# Function to fetch ALL video details from a channel
-def fetch_all_videos(channel_id):
-    api_key = "YOUR_YOUTUBE_API_KEY"  # Replace with your actual YouTube API Key
+# Định nghĩa dữ liệu đầu vào
+class YouTubeChannel(BaseModel):
+    channel_url: str
+
+# Hàm lấy danh sách video từ kênh
+def get_videos(channel_id):
+    url = f"https://www.googleapis.com/youtube/v3/search?key={API_KEY}&channelId={channel_id}&part=snippet&type=video&maxResults=20"
+    response = requests.get(url).json()
+
+    if "items" not in response:
+        return []
+
     videos = []
-    next_page_token = None
-
-    while True:
-        youtube_api_url = (
-            f"https://www.googleapis.com/youtube/v3/search?key={api_key}"
-            f"&channelId={channel_id}&part=snippet&type=video&maxResults=50"
-            + (f"&pageToken={next_page_token}" if next_page_token else "")
-        )
-
-        response = requests.get(youtube_api_url)
-        if response.status_code == 200:
-            data = response.json()
-            videos.extend(
-                [
-                    {
-                        "video_id": item["id"]["videoId"],
-                        "title": item["snippet"]["title"],
-                        "thumbnail": item["snippet"]["thumbnails"]["high"]["url"],
-                    }
-                    for item in data.get("items", [])
-                ]
-            )
-            next_page_token = data.get("nextPageToken")
-            if not next_page_token:
-                break
-        else:
-            break
-
+    for item in response["items"]:
+        videos.append({
+            "video_id": item["id"]["videoId"],
+            "title": item["snippet"]["title"],
+            "description": item["snippet"].get("description", ""),
+            "thumbnail": item["snippet"]["thumbnails"]["high"]["url"]
+        })
     return videos
 
-# Function to extract keywords from video titles
-def extract_keywords(video_titles):
-    words = []
-    for title in video_titles:
-        words.extend(re.findall(r"\b\w+\b", title.lower()))
-    
-    keyword_counts = Counter(words)
-    
-    # Filter out common stop words
-    stop_words = {"the", "in", "of", "and", "to", "a", "on", "for", "with", "is", "how", "you", "your", "this", "it", "that"}
-    filtered_keywords = {k: v for k, v in keyword_counts.items() if k not in stop_words and len(k) > 2}
-    
-    sorted_keywords = sorted(filtered_keywords.items(), key=lambda x: x[1], reverse=True)
-    
-    main_keywords = [word for word, count in sorted_keywords[:10]]  # Top 10 keywords
-    keyword_phrases = [
-        " ".join(title.split()[i : i + 3])
-        for title in video_titles
-        for i in range(len(title.split()) - 2)
-    ]
+# Hàm trích xuất từ khóa từ tiêu đề và mô tả
+def extract_keywords(videos):
+    word_counts = Counter()
+    for video in videos:
+        text = f"{video['title']} {video['description']}".lower()
+        words = re.findall(r'\b[a-zA-Z0-9]+\b', text)
+        word_counts.update(words)
 
-    return {"main_keywords": main_keywords, "keyword_phrases": keyword_phrases}
+    keywords = [word for word, count in word_counts.items() if count > 1]  # Chỉ lấy từ xuất hiện >1 lần
+    main_keywords = keywords[:10]  # Từ khóa chính (top 10 từ phổ biến)
+    sub_keywords = [word for word in keywords if word not in main_keywords]  # Từ khóa phụ
+    phrase_keywords = [" ".join(words[i:i+3]) for i in range(len(words)-2)]  # Cụm từ khóa 3 từ
+    return main_keywords, sub_keywords, phrase_keywords[:10]
 
-# Function to check keyword trends on Google Trends
-def check_google_trends(keywords):
-    trends_data = {}
-    for keyword in keywords:
-        trends_url = f"https://trends.google.com/trends/explore?q={keyword}"
-        trends_data[keyword] = trends_url  # Placeholder (Actual scraping API may be required)
+# Hàm kiểm tra xu hướng từ khóa trên Google Trends
+def check_google_trends(keyword):
+    trends_url = f"https://trends.google.com/trends/api/explore?hl=en-US&tz=-180&req={{'comparisonItem':[{{'keyword':'{keyword}','geo':'','time':'today 12-m'}}],'category':0,'property':''}}"
+    response = requests.get(trends_url)
+    return response.status_code == 200  # Giả sử nếu trả về 200 là có xu hướng
 
-    return trends_data
+# Hàm đề xuất tiêu đề SEO mạnh nhất
+def suggest_seo_title(main_keywords):
+    return f"{' '.join(main_keywords[:5])} - Bí quyết tối ưu SEO YouTube"
 
-# API Endpoint to analyze YouTube channel
 @app.post("/analyze")
-def analyze_channel(request: YouTubeChannelRequest):
-    channel_id = get_channel_id(request.channel_url)
-    
+def analyze_channel(data: YouTubeChannel):
+    channel_id = get_channel_id(data.channel_url)
     if not channel_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy Channel ID.")
+        raise HTTPException(status_code=400, detail="Không thể lấy Channel ID từ URL. Vui lòng kiểm tra lại.")
 
-    videos = fetch_all_videos(channel_id)
+    videos = get_videos(channel_id)
     if not videos:
-        raise HTTPException(status_code=404, detail="Không tìm thấy video nào trên kênh.")
+        raise HTTPException(status_code=500, detail="Không thể lấy danh sách video từ API YouTube.")
 
-    video_titles = [video["title"] for video in videos]
-    keywords_data = extract_keywords(video_titles)
-    google_trends = check_google_trends(keywords_data["main_keywords"])
+    main_keywords, sub_keywords, phrase_keywords = extract_keywords(videos)
+    trending_keywords = [kw for kw in main_keywords if check_google_trends(kw)]
 
     return {
-        "channel": request.channel_url,
+        "channel": data.channel_url,
         "total_videos": len(videos),
-        "top_videos": videos[:10],  # Trả về 10 video tiêu biểu
-        "keywords": keywords_data,
-        "google_trends": google_trends,
+        "top_videos": videos,
+        "main_keywords": main_keywords,
+        "sub_keywords": sub_keywords,
+        "phrase_keywords": phrase_keywords,
+        "trending_keywords": trending_keywords,
+        "suggested_seo_title": suggest_seo_title(main_keywords)
     }
