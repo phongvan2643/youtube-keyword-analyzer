@@ -62,3 +62,19 @@ def analyze_channel(request: YouTubeRequest):
         "keyword_phrases": keyword_phrases,
         "trends": trend_links
     }
+import requests
+
+def get_channel_id(channel_handle):
+    api_key = "YOUR_YOUTUBE_API_KEY"
+    url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&q={channel_handle}&type=channel&key={api_key}"
+    
+    response = requests.get(url)
+    data = response.json()
+    
+    if "items" in data and len(data["items"]) > 0:
+        return data["items"][0]["id"]["channelId"]
+    return None
+
+channel_handle = "@RecollectionRoad"
+channel_id = get_channel_id(channel_handle)
+print("Channel ID:", channel_id)
