@@ -3,7 +3,6 @@ from pydantic import BaseModel
 import yt_dlp
 import re
 from collections import Counter
-import pandas as pd
 
 app = FastAPI()
 
@@ -65,6 +64,11 @@ def extract_keywords(video_titles):
         "Từ khóa phụ": secondary_keywords,
         "Từ khóa mở rộng": extended_keywords
     }
+
+# API Test route
+@app.get("/")
+def home():
+    return {"message": "YouTube Keyword Analyzer API is running!"}
 
 # API Endpoint để phân tích từ khóa từ kênh YouTube
 @app.post("/analyze")
