@@ -9,9 +9,9 @@ app = FastAPI()
 
 # Định nghĩa các dạng URL hợp lệ của kênh YouTube
 YOUTUBE_URL_PATTERNS = [
-    r"youtube\.com/channel/([a-zA-Z0-9_-]+)",  # Dạng /channel/ID
-    r"youtube\.com/c/([a-zA-Z0-9_-]+)",       # Dạng /c/TênKênh
-    r"youtube\.com/@([a-zA-Z0-9_-]+)"         # Dạng @TênKênh
+    r"youtube\.com/channel/([a-zA-Z0-9_-]+)",  
+    r"youtube\.com/c/([a-zA-Z0-9_-]+)",        
+    r"youtube\.com/@([a-zA-Z0-9_-]+)"          
 ]
 
 class YouTubeChannel(BaseModel):
@@ -27,7 +27,7 @@ def validate_youtube_channel_url(channel_url):
 def get_channel_videos(channel_url):
     ydl_opts = {
         'quiet': True,
-        'extract_flat': True,  # Chỉ lấy danh sách video, không tải
+        'extract_flat': True,  
         'force_generic_extractor': True
     }
 
@@ -45,14 +45,14 @@ def get_channel_videos(channel_url):
 def extract_keywords(video_titles):
     all_keywords = []
     for title in video_titles:
-        words = re.findall(r'\b\w+\b', title.lower())  # Tách từ khóa
+        words = re.findall(r'\b\w+\b', title.lower())  
         all_keywords.extend(words)
 
     keyword_counts = Counter(all_keywords)
     sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
 
     # Phân loại từ khóa
-    primary_keywords = [kw for kw, count in sorted_keywords if count >= 3]  # Xuất hiện ít nhất 3 lần
+    primary_keywords = [kw for kw, count in sorted_keywords if count >= 3]  
     secondary_keywords = [kw for kw, count in sorted_keywords if 2 <= count < 3]
     extended_keywords = [kw for kw, count in sorted_keywords if count == 1]
 
