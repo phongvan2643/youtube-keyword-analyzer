@@ -11,13 +11,13 @@ app = FastAPI()
 YOUTUBE_URL_PATTERNS = [
     r"youtube\.com/channel/([a-zA-Z0-9_-]+)",  # Dạng /channel/ID
     r"youtube\.com/c/([a-zA-Z0-9_-]+)",       # Dạng /c/TênKênh
-    r"youtube\.com/@([a-zA-Z0-9_-]+)",        # Dạng @TênKênh
+    r"youtube\.com/@([a-zA-Z0-9_-]+)"         # Dạng @TênKênh
 ]
 
 class YouTubeChannel(BaseModel):
     channel_url: str
 
-# Hàm kiểm tra và chuẩn hóa link kênh YouTube
+# Hàm kiểm tra URL có hợp lệ không
 def validate_youtube_channel_url(channel_url):
     if not any(re.search(pattern, channel_url) for pattern in YOUTUBE_URL_PATTERNS):
         raise HTTPException(status_code=400, detail="URL không hợp lệ! Vui lòng nhập đúng link kênh YouTube.")
