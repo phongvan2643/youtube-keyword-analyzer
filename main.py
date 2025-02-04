@@ -7,27 +7,29 @@ import pandas as pd
 
 app = FastAPI()
 
-# Định nghĩa các dạng URL hợp lệ của YouTube
+# Định nghĩa các dạng URL hợp lệ của kênh YouTube
 YOUTUBE_URL_PATTERNS = [
     r"youtube\.com/channel/([a-zA-Z0-9_-]+)",  # Dạng /channel/ID
-    r"youtube\.com/c/([a-zA-Z0-9_-]+)",       # Dạng /c/TênKênh
-    r"youtube\.com/@([a-zA-Z0-9_-]+)",        # Dạng @TênKênh
+    r"youtube\.com/c/([a-zA-Z0-9_-]+)",        # Dạng /c/TênKênh
+    r"youtube\.com/@([a-zA-Z0-9_-]+)"          # Dạng @TênKênh
 ]
 
 class YouTubeChannel(BaseModel):
     channel_url: str
 
-# Kiểm tra tính hợp lệ của URL kênh YouTube
-def validate_youtube_channel_url(channel_url):
-    if not any(re.search(pattern, channel_url) for pattern in YOUTUBE_URL_PATTERNS):
-        raise HTTPException(status_code=400, detail="URL không hợp lệ! Vui lòng nhập link kênh YouTube hợp lệ.")
-    return channel_url
+# Hàm kiểm tra và lấy Channel ID từ URL kênh YouTube
+def extract_channel_id(channel_url: str):
+    for pattern in YOUTUBE_URL_PATTERNS:
+        match = re.search(pattern, channel_url)
+        if match:
+            return match.group(1)
+    return None
 
 # Hàm lấy danh sách video từ kênh YouTube
-def get_channel_videos(channel_url):
+def get_channel_videos(channel_url: str):
     ydl_opts = {
         'quiet': True,
-        'extract_flat': True,  # Chỉ lấy danh sách video, không tải về
+        'extract_flat': True,  # Chỉ lấy danh sách video, không tải video
         'force_generic_extractor': True
     }
 
@@ -36,39 +38,50 @@ def get_channel_videos(channel_url):
             info = ydl.extract_info(channel_url, download=False)
             if 'entries' in info:
                 return [entry['title'] for entry in info['entries'] if 'title' in entry]
-            else:
-                return []
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Lỗi khi lấy video từ kênh: {str(e)}")
+            print(f"Lỗi khi lấy video từ kênh: {str(e)}")
+            return []
+    return []
 
-# Phân tích tiêu đề để trích xuất từ khóa
-def analyze_keywords(video_titles):
-    words = []
-    for title in video_titles:
-        words.extend(re.findall(r'\b\w+\b', title.lower()))  # Tách từ khóa theo từ
-    word_counts = Counter(words)
+# Hàm trích xuất từ khóa từ danh sách tiêu đề video
+def extract_keywords(video_titles):
+    all_words = []
     
-    primary_keywords = [word for word, count in word_counts.items() if count > 5]  # Từ khóa chính (lặp lại nhiều)
-    secondary_keywords = [word for word, count in word_counts.items() if 2 < count <= 5]  # Từ khóa phụ
-    extended_keywords = [word for word, count in word_counts.items() if count == 2]  # Từ khóa mở rộng
+    for title in video_titles:
+        words = re.findall(r'\b\w+\b', title.lower())  # Chuyển về chữ thường và tách từ
+        all_words.extend(words)
 
-    return primary_keywords, secondary_keywords, extended_keywords
+    word_counts = Counter(all_words)
 
+    # Phân loại từ khóa theo tần suất xuất hiện
+    sorted_keywords = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+
+    primary_keywords = [word for word, count in sorted_keywords if count >= 5]  # Xuất hiện nhiều nhất
+    secondary_keywords = [word for word, count in sorted_keywords if 3 <= count < 5]  # Xuất hiện trung bình
+    extended_keywords = [word for word, count in sorted_keywords if count < 3]  # Xuất hiện ít hơn
+
+    return {
+        "Từ khóa chính": primary_keywords,
+        "Từ khóa phụ": secondary_keywords,
+        "Từ khóa mở rộng": extended_keywords
+    }
+
+# API Endpoint để phân tích từ khóa từ kênh YouTube
 @app.post("/analyze")
-def analyze_youtube_keywords(channel: YouTubeChannel):
-    channel_url = validate_youtube_channel_url(channel.channel_url)
+def analyze_channel(data: YouTubeChannel):
+    channel_url = data.channel_url
+
+    # Kiểm tra URL có hợp lệ không
+    channel_id = extract_channel_id(channel_url)
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="URL kênh YouTube không hợp lệ!")
+
+    # Lấy danh sách video
     video_titles = get_channel_videos(channel_url)
-
     if not video_titles:
-        raise HTTPException(status_code=500, detail="Không tìm thấy video nào trên kênh này.")
+        raise HTTPException(status_code=404, detail="Không thể lấy danh sách video từ kênh này!")
 
-    primary_keywords, secondary_keywords, extended_keywords = analyze_keywords(video_titles)
+    # Trích xuất từ khóa
+    keyword_analysis = extract_keywords(video_titles)
 
-    # Hiển thị dưới dạng bảng
-    df = pd.DataFrame({
-        "Từ khóa chính": [", ".join(primary_keywords) if primary_keywords else "Không có"],
-        "Từ khóa phụ": [", ".join(secondary_keywords) if secondary_keywords else "Không có"],
-        "Từ khóa mở rộng": [", ".join(extended_keywords) if extended_keywords else "Không có"],
-    })
-
-    return df.to_dict(orient="records")
+    return keyword_analysis
