@@ -7,10 +7,15 @@ import pandas as pd
 
 app = FastAPI()
 
-# API kiểm tra xem service có hoạt động không
+# API kiểm tra xem service có hoạt động không (fix lỗi 405 Method Not Allowed)
 @app.get("/")
 def home():
     return {"message": "YouTube Keyword Analyzer API is running!"}
+
+# API kiểm tra trang /docs có hoạt động không
+@app.get("/docs")
+def docs_redirect():
+    return {"message": "OpenAPI docs are available at /docs"}
 
 # Định nghĩa dữ liệu đầu vào
 class YouTubeChannel(BaseModel):
